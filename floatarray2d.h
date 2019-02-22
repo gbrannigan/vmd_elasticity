@@ -68,7 +68,7 @@ public:
     FloatArray2D& init_from(const FloatArray2D &src, int first_row = 0, int row_count = 0) {
         // Check that there's enough data in the source to copy in the first place
         if(src.num_rows() < (first_row + row_count)) {
-            std::cerr << "FloatArray2D: Not enough data in source to copy into this new instance" << std::endl;
+            std::cerr << "FloatArray2D::init_from: Not enough data in source to copy into this new instance" << std::endl;
             std::raise(SIGABRT);
         }
 
@@ -78,8 +78,8 @@ public:
         reset(row_count, src.num_cols());
 
         // Depends heavily on row-major ordering
-        std::memcpy((void *) data_, (void *) (src.data_ + first_row * src.num_cols()),
-                    sizeof(float) * row_count * src.num_cols());
+        std::memcpy((void *) data_, (void *) (src.data_ + first_row*src.num_cols()),
+                    sizeof(float)*row_count*src.num_cols());
         return *this;
     }
 
@@ -87,19 +87,19 @@ public:
     // Does a bounds check.
     float get(int r, int c) const {
         check_out_of_bounds(r, c);
-        return data_[r * num_cols_ + c];
+        return data_[r*num_cols_ + c];
     }
 
     // Sets an element to the specified value.
     void set(int r, int c, float val) {
         check_out_of_bounds(r, c);
-        data_[r * num_cols_ + c] = val;
+        data_[r*num_cols_ + c] = val;
     }
 
     // Adds in place to a single cell
     FloatArray2D& add(int r, int c, float val) {
         check_out_of_bounds(r, c);
-        data_[r * num_cols_ + c] += val;
+        data_[r*num_cols_ + c] += val;
         return *this;
     }
 
@@ -109,7 +109,7 @@ public:
             std::cerr << "FloatArray2D::add: Operand dimensions are different from mine" << std::endl;
             std::raise(SIGABRT);
         }
-        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+        for(int i = 0; i < (num_rows_*num_cols_); i++) {
             data_[i] += other.data_[i];
         }
         return *this;
@@ -121,7 +121,7 @@ public:
             std::cerr << "FloatArray2D::subtract: Operand dimensions are different from mine" << std::endl;
             std::raise(SIGABRT);
         }
-        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+        for(int i = 0; i < (num_rows_*num_cols_); i++) {
             data_[i] -= other.data_[i];
         }
         return *this;
@@ -129,7 +129,7 @@ public:
 
     // Multiply everything in place by specified value
     FloatArray2D& multiply(float val) {
-        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+        for(int i = 0; i < (num_rows_*num_cols_); i++) {
             data_[i] *= val;
         }
         return *this;
@@ -138,10 +138,10 @@ public:
     // Pairwise multiply with another FloatArray2D, in place. This is NOT a matrix multiplication.
     FloatArray2D& multiply(const FloatArray2D &other) {
         if(other.num_rows() != num_rows_ || other.num_cols() != num_cols_) {
-            std::cerr << "FloatArray2D::add: Operand dimensions are different from mine" << std::endl;
+            std::cerr << "FloatArray2D::multiply: Operand dimensions are different from mine" << std::endl;
             std::raise(SIGABRT);
         }
-        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+        for(int i = 0; i < (num_rows_*num_cols_); i++) {
             data_[i] *= other.data_[i];
         }
         return *this;
@@ -150,7 +150,7 @@ public:
     // Divides a single cell, in place, by a value
     FloatArray2D& divide(int r, int c, float denom) {
         check_out_of_bounds(r, c);
-        data_[r * num_cols_ + c] /= denom;
+        data_[r*num_cols_ + c] /= denom;
         return *this;
     }
 
@@ -160,7 +160,7 @@ public:
             std::cerr << "FloatArray2D::divide: Operand denom dimensions are different from mine" << std::endl;
             exit(EXIT_FAILURE);
         }
-        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+        for(int i = 0; i < (num_rows_*num_cols_); i++) {
             data_[i] /= denom.data_[i];
         }
         return *this;
@@ -188,20 +188,20 @@ public:
             exit(EXIT_FAILURE);
         }
 
-        float *dest_data = data_ + (dest_row * num_cols_);
-        float *src_data = src.data_ + (src_row * num_cols_);
+        float *dest_data = data_ + (dest_row*num_cols_);
+        float *src_data = src.data_ + (src_row*num_cols_);
         std::memcpy((void *) dest_data, (void *) src_data, sizeof(float) * num_cols_);
         return *this;
     }
 
     // Copy all data into a raw output array, in row-major order
     void copy_raw_to(float *out) {
-        std::memcpy((void *) out, (void *) data_, sizeof(float) * num_rows_ * num_cols_);
+        std::memcpy((void *) out, (void *) data_, sizeof(float)*num_rows_*num_cols_);
     }
 
     // Zeroes us out
     FloatArray2D& zero() {
-        memset(data_, 0, num_rows_ * num_cols_ * sizeof(float));
+        memset(data_, 0, num_rows_*num_cols_*sizeof(float));
         return *this;
     }
 
