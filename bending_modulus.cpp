@@ -1,5 +1,5 @@
 // Lipid bending modulus calculation
-// Tom Joseph <thomas.joseph@uphs.upenn.edu>
+// Tom Joseph <thomas.joseph@@pennmedicine.upenn.edu>
 // Reimplemented from code from Itay Barel, Frank Brown, and others at UC Santa Barbara
 // Algorithm from: Levine et al, JACS 2014, 136, 13582-13585. dx.doi.org/10.1021/ja507910r
 #include <iostream>
@@ -8,6 +8,7 @@
 #include <string>
 #include <cstring>
 #include <cmath>
+#include <cassert>
 #include <fftw3.h>
 #include "floatarray2d.h"
 
@@ -397,6 +398,92 @@ void calculate_number_densities(FloatArray2D &heads, FloatArray2D &tails, FloatA
     } // for loop over lipids
 }
 
+
+// Do an DFT on a FloatArray2D
+// This is pretty much syntactic sugar.
+// Caller must delete[] the returned fftwf_complex*.
+fftwf_complex *do_dft2d_r2c(fftwf_plan plan, FloatArray2D &data, fftwf_complex *fft_data = 0) {
+    assert(data.num_rows() == data.num_cols());
+    int grid_size = data.num_rows();
+    auto raw_data = new float[grid_size*grid_size];
+    data.copy_raw_to(raw_data);
+    int num_grid_pairs = grid_size*(grid_size/2+1);
+    if(fft_data == 0) {
+        fft_data = new fftwf_complex[num_grid_pairs];
+    }
+    std::memset(fft_data, 0, sizeof(fftwf_complex)*num_grid_pairs);
+    fftwf_execute_dft_r2c(plan, raw_data, fft_data);
+
+    delete[] raw_data;
+    return fft_data;
+}
+
+
+// Converts fftw_complex array into 2D matrices, real and imaginary, normalized,
+// with some weird stuff happening in first row and column.
+// Fills in the right half of the full array, using the property
+// h_{-q} = h*_{q}=h_{N-q}, whatever that means.
+// This modifies all the array arguments!
+void fill_full_array(FloatArray2D &real, FloatArray2D &imaginary, fftwf_complex *array2,
+    float box_xy_magnitude) {
+
+    // We can avoid passing in the grid size because real/imaginary should already be the correct size
+    // cerr << "grid_size: " << grid_size << endl
+    //      << real.num_rows() << " " << real.num_cols() << " " << imaginary.num_rows() << " "  << imaginary.num_cols() <<  endl;
+    assert(real.num_rows() == real.num_cols());
+    assert(imaginary.num_rows() == imaginary.num_cols());
+    assert(real.num_rows() == imaginary.num_rows());
+    int grid_size = real.num_rows();
+
+    // Surely there's a more concise way to write this normalization.
+    // Or else, we could just do the multiplication inline, when we're writing to real
+    // and imaginary arrays below, and save a bunch of memory writes. I don't know.
+    float normalization_factor = box_xy_magnitude / (grid_size*grid_size);
+    for(int i = 0; i < (grid_size*(grid_size/2+1)); i++) {
+        array2[i][0] *= normalization_factor;
+        array2[i][1] *= normalization_factor;
+    }
+
+    // XXX: Can pull out the first row/col special cases to avoid all those if statements in
+    // the inner loop. On the other hand, CPU branch prediction may make it a moot point
+    // performance-wise and the only remaining reason to do so is clarity of presentation
+    for(int row = 0; row < grid_size; row++) {
+        for(int col = 0; col < grid_size; col++) {
+            // Do something special for the top row
+            if(row == 0) {
+                if(col <= grid_size/2) {
+                    // Left half of the top row
+                    real.set(row, col,       array2[row*(grid_size/2+1) + col][0]);
+                    imaginary.set(row, col,  array2[row*(grid_size/2+1) + col][1]);
+                } else {
+                    // Right half of the top row
+                    real.set(row, col,       array2[row*(grid_size/2+1) + (grid_size-col)][0]);
+                    imaginary.set(row, col, -array2[row*(grid_size/2+1) + (grid_size-col)][1]);
+                }
+            }
+
+            // Do something special for the leftmost column, except the first row
+            if(row != 0 && col == 0) {
+                real.set(row, col,       array2[row*(grid_size/2+1) + col][0]);
+                imaginary.set(row, col,  array2[row*(grid_size/2+1) + col][1]);
+            }
+
+            if(row > 0 && col > 0) {
+                if(col <= grid_size/2) {
+                    // Left half of the top row
+                    real.set(row, col,       array2[row*(grid_size/2+1) + col][0]);
+                    imaginary.set(row, col,  array2[row*(grid_size/2+1) + col][1]);
+                } else {
+                    // Right half of the top row
+                    real.set(row, col,       array2[(grid_size-row)*(grid_size/2+1) + (grid_size-col)][0]);
+                    imaginary.set(row, col, -array2[(grid_size-row)*(grid_size/2+1) + (grid_size-col)][1]);
+                }
+            }
+        }
+    }
+}
+
+
 int main(int argc, char *argv[]) {
     const int num_lipids = 512; // known from VMD
     const int grid_size = 12; // to be a user argument
@@ -448,10 +535,6 @@ int main(int argc, char *argv[]) {
     // Probably some of these we could declare within the frame loop, for clarity.
     // After all, there aren't that many frames
     // FIXME: In the original code, many of these are zeroed out for each frame
-    auto z_height_upper_raw = new float[grid_size*grid_size];
-    auto z_height_upper_fft = new fftwf_complex[num_grid_pairs];
-    auto z_height_lower_raw = new float[grid_size*grid_size];
-    auto z_height_lower_fft = new fftwf_complex[num_grid_pairs];
     // Original code called these dz1xqS, dz2xqS, dz1yqS, dz2yzS
     auto dz_upper_xqS = new fftwf_complex[num_grid_pairs];
     auto dz_upper_yqS = new fftwf_complex[num_grid_pairs];
@@ -489,7 +572,7 @@ int main(int argc, char *argv[]) {
         cout << "== Frame " << frame_i << " ==" << endl;
         // Each frame contains 2 * num_lipids coordinates because there are heads and tails...duh
         FloatArray2D lipid_frame;
-        lipid_frame.init_from(lipid, 2 * num_lipids * frame_i, 2 * num_lipids);
+        lipid_frame.init_from(lipid, 2*num_lipids*frame_i, 2*num_lipids);
 
         // Deinterlace the blob of lipid coordinates into heads and tails, and wrap them into the periodic box
         FloatArray2D heads, tails;
@@ -500,7 +583,9 @@ int main(int argc, char *argv[]) {
 
         // Calculate director and associated quantities, and wrap lipids in Z direction
         FloatArray2D director;
+        // Keep track of which lipids are "good" and therefore can be considered in the calculation
         std::vector<bool> lipid_good;
+        // How many lipids in upper and lower leaflets
         int num_upper_leaflet, num_lower_leaflet;
         float avg_head_z;
         float box_z = box_size.get(frame_i, 2);
@@ -515,12 +600,12 @@ int main(int argc, char *argv[]) {
         // "CALCULATE NUMBER DENSITIES/////"
         // Not sure what these are yet
         FloatArray2D h_real, h_imag, psi_upper_real, psi_upper_imag, psi_lower_real, psi_lower_imag;
-        // OMG
+        // OMG this function does a lot of stuff
         calculate_number_densities(heads, tails, director, lipid_good, num_upper_leaflet, num_lower_leaflet,
                 qx_matrix, qy_matrix, grid_size, box_a, box_b, avg_head_z,
                 h_real, h_imag, psi_upper_real, psi_upper_imag, psi_lower_real, psi_lower_imag);
 
-        // Assign to coarse-grained grid (c)
+        // Quantize into coarse-grained grid (c)
         FloatArray2D z_height_upper, z_height_lower;
         // Keep count of how many good and bad lipids are represented at each grid point
         // It's nice they are floats because we will divide by them later.
@@ -544,12 +629,10 @@ int main(int argc, char *argv[]) {
         // "CALCULATE NORMAL VECTORS//////"
         // Copy raw floats into 1D array, suitable for FFTW, then calculate Fourier spectra
         // We copy so we don't have to expose the internal representation of FloatArray2D. Probably a bit silly.
-        z_height_upper.copy_raw_to(z_height_upper_raw);
-        fftwf_execute_dft_r2c(spectrum_plan, z_height_upper_raw, z_height_upper_fft);
-        z_height_lower.copy_raw_to(z_height_upper_raw);
-        fftwf_execute_dft_r2c(spectrum_plan, z_height_lower_raw, z_height_lower_fft);
+        auto z_height_upper_fft = do_dft2d_r2c(spectrum_plan, z_height_upper);
+        auto z_height_lower_fft = do_dft2d_r2c(spectrum_plan, z_height_lower);
 
-        // TODO: set wave vector...
+        // set wave vector: (Line 1040)
         // Convert from vectors in Fourier space, which must be normalized by box length, to tilt angles
 
         // Seems like there should be a way to vectorize this
@@ -573,22 +656,24 @@ int main(int argc, char *argv[]) {
                 float norm = box_xy_magnitude / (grid_size*grid_size);
                 // Note the double subscript on the fftwf_complex values, since these are
                 // really just float[2], for real and complex components
-                dz_upper_xqS[k][0] = -norm*qi*z_height_upper_fft[k][1]*2*M_PI*box_a;
+                dz_upper_xqS[k][0] = -norm*qi*z_height_upper_fft[k][1]*2*M_PI*box_a; // dz1xqS
                 dz_upper_xqS[k][1] = -norm*qi*z_height_upper_fft[k][0]*2*M_PI*box_a;
-                dz_upper_yqS[k][0] = -norm*qj*z_height_upper_fft[k][1]*2*M_PI*box_b;
+                dz_upper_yqS[k][0] = -norm*qj*z_height_upper_fft[k][1]*2*M_PI*box_b; // dz1yqS
                 dz_upper_yqS[k][1] = -norm*qj*z_height_upper_fft[k][0]*2*M_PI*box_b;
 
-                dz_lower_xqS[k][0] = -norm*qi*z_height_lower_fft[k][1]*2*M_PI*box_a;
+                dz_lower_xqS[k][0] = -norm*qi*z_height_lower_fft[k][1]*2*M_PI*box_a; // dz2xqS
                 dz_lower_xqS[k][1] = -norm*qi*z_height_lower_fft[k][0]*2*M_PI*box_a;
-                dz_lower_yqS[k][0] = -norm*qj*z_height_lower_fft[k][1]*2*M_PI*box_b;
+                dz_lower_yqS[k][0] = -norm*qj*z_height_lower_fft[k][1]*2*M_PI*box_b; // dz2yqS
                 dz_lower_yqS[k][1] = -norm*qj*z_height_lower_fft[k][0]*2*M_PI*box_b;
             }
         }
 
+        delete[] z_height_upper_fft;
+        delete[] z_height_lower_fft;
+
         // "*** Defining the Normal as the 2d gradient of the height field ***"
         // "first calculate the gradient in Fourier space"
-        z_height.copy_raw_to(z_height_raw);
-        fftwf_execute_dft_r2c(spectrum_plan, z_height_raw, z_height_fft);
+        do_dft2d_r2c(spectrum_plan, z_height, z_height_fft);
 
         for(int i = 0; i < grid_size; i++) {
             for(int j = 0; j <= grid_size/2; j++) {
@@ -766,19 +851,20 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // TODO: "Added by Itay" section
-
-        // Renormalize director grid field
+        // Renormalize director grid field ("Added by Itay")
+        // 
         for(int i = 0; i < grid_size; i++) {
             for(int j = 0; j < grid_size; j++) {
+                // By default normalize only with the Z component
                 double norm_factor_upper = abs(director_upper_z.get(i, j));
                 double norm_factor_lower = abs(director_lower_z.get(i, j));
-                if(!should_norm_z1) {
-                    norm_factor_upper = sqrt(director_upper_z.get(i, j)*director_upper_z.get(i, j)
-                            + director_upper_z.get(i, j)*director_upper_z.get(i, j)
+                // ...unless we want to use the overall magnitude
+                if(!should_norm_z1) { // normZ1
+                    norm_factor_upper = sqrt(director_upper_x.get(i, j)*director_upper_x.get(i, j)
+                            + director_upper_y.get(i, j)*director_upper_y.get(i, j)
                             + director_upper_z.get(i, j)*director_upper_z.get(i, j));
-                    norm_factor_lower = sqrt(director_lower_z.get(i, j)*director_lower_z.get(i, j)
-                            + director_lower_z.get(i, j)*director_lower_z.get(i, j)
+                    norm_factor_lower = sqrt(director_lower_x.get(i, j)*director_lower_x.get(i, j)
+                            + director_lower_y.get(i, j)*director_lower_y.get(i, j)
                             + director_lower_z.get(i, j)*director_lower_z.get(i, j));
                 }
                 director_upper_x.divide(i, j, norm_factor_upper);
@@ -798,7 +884,7 @@ int main(int argc, char *argv[]) {
             }
         } // iteration over grid
 
-        // Accumulate real space orientations of normals and tilts
+        // Accumulate real space orientations of normals and tilts (Line 1358)
         // t1xR_cum -> tilt_upper_real_x_cum, etc...but is never used after being calculated
         // in the original code, so we won't include it at all here
         // Tilt sum and difference: dp and dm
@@ -813,13 +899,56 @@ int main(int argc, char *argv[]) {
         director_sum_y.init_from(director_upper_y).add(director_lower_y);
         director_diff_x.init_from(director_upper_x).subtract(director_lower_x);
         director_diff_y.init_from(director_upper_y).subtract(director_lower_y);
-        // TODO: umAcc...but that looks messed up in the original source
+        // TODO: Update umAcc matrices, but that looks messed up in the original source:
+        //   --snip--
+        //      umAcc[i][j][0] = umAcc[i][j][0] =  + pow(um[i][j][0],2);
+        //      umAcc[i][j][1] = umAcc[i][j][1] =  + pow(um[i][j][1],2);
+        //   --snip--
+        // I guess the intent is to sum the squares of the director differences, over all frames
 
+        // "ACCUMULATE SPECTRA//////"
+        // Convert a bunch of stuff to raw arrays in preparation for more FFTs
 
-        // TODO: "ACCUMULATE SPECTRA//////"
-        // Convert height and thickness (h and t variables in original) to 1D arrays
-        // Also, convert a bunch of other stuff to 1D arrays, probably in preparation for more FFTs
+        // The FFT of z_height is commented out in the original source for some reason,
+        // but the corresponding call to fullArray() is not
+        do_dft2d_r2c(spectrum_plan, z_height, z_height_fft);
+        // Do FFT of Z-thickness (t1x, t1y)
+        auto z_thickness_fft = do_dft2d_r2c(spectrum_plan, z_thickness);
 
+        // Do FFT of tilt sum and difference vectors
+        // And director sum and difference vectors
+        // t1x1D, t1y1D, dpx1D, dpy1D, dmx1D, dmy1D, upx1D, upy1D, umx1D, umy1D
+        auto tilt_sum_x_fft = do_dft2d_r2c(spectrum_plan, tilt_sum_x);
+        auto tilt_sum_y_fft = do_dft2d_r2c(spectrum_plan, tilt_sum_y);
+        auto tilt_diff_x_fft = do_dft2d_r2c(spectrum_plan, tilt_diff_x);
+        auto tilt_diff_y_fft = do_dft2d_r2c(spectrum_plan, tilt_diff_y);
+        auto director_sum_x_fft = do_dft2d_r2c(spectrum_plan, director_sum_x);
+        auto director_sum_y_fft = do_dft2d_r2c(spectrum_plan, director_sum_y);
+        auto director_diff_x_fft = do_dft2d_r2c(spectrum_plan, director_diff_x);
+        auto director_diff_y_fft = do_dft2d_r2c(spectrum_plan, director_diff_y);
+
+        // TODO:             /////// Normals ////////////////////////////////////////////////
+        //  ~Line 1451
+        // dhx1D, dhy1D
+
+        // We use fullArray() now to, I guess, convert an array of
+        // fftw_complex back into separate real and imaginary components in a matrix
+        //      fullArray(ngrid, hqR, hqI, hqS, Lxy); // multiply by lx/N^2 factor inside
+        //      fullArray(ngrid, tqR, tqI, tqS, Lxy);
+        float box_xy_magnitude = sqrtf(box_a*box_b);
+
+        // hqR: real; hqI: imaginary
+        // hqS: ?; Lxy: box lengths
+        // We did the FFTs for z_height and z_thickness above
+        FloatArray2D z_height_real(grid_size, grid_size), z_height_imaginary(grid_size, grid_size);
+        FloatArray2D z_thickness_real(grid_size, grid_size), z_thickness_imaginary(grid_size, grid_size);
+        fill_full_array(z_height_real, z_height_imaginary, z_height_fft, box_xy_magnitude);
+        fill_full_array(z_thickness_real, z_thickness_imaginary, z_thickness_fft, box_xy_magnitude);
+
+        delete[] z_thickness_fft;
+        delete[] tilt_sum_y_fft;
+        delete[] tilt_diff_x_fft;
+        delete[] tilt_diff_y_fft;
     } // iteration over frames
 
     lipid_number_density /= (float) box_size.num_rows();
@@ -830,10 +959,7 @@ int main(int argc, char *argv[]) {
     fftwf_destroy_plan(spectrum_plan);
 
     // As a plugin, we don't want to pollute the heap
-    delete[] z_height_upper_raw;
-    delete[] z_height_upper_fft;
-    delete[] z_height_lower_raw;
-    delete[] z_height_lower_fft;
+    delete[] z_height_raw;
     delete[] dz_upper_xqS;
     delete[] dz_upper_yqS;
     delete[] dz_lower_xqS;
