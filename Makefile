@@ -6,7 +6,7 @@ PLUGINDIR=${HOME}/local/vmd-1.9.3/plugins/LINUXAMD64/tcl
 
 CPP=g++
 #CPPFLAGS=-fpic -g -I${TCLINC}
-CPPFLAGS=-fpic -O3 -I${TCLINC}
+CPPFLAGS=-fpic -O3 -I${TCLINC} -Wall
 # LIBS=-Wl,-Bstatic -lfftw -Wl,-Bdynamic
 LIBS=-lfftw3f
 
