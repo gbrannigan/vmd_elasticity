@@ -42,9 +42,8 @@ public:
 
     // Resets to specified dimensions, freeing any existing data, and initializing the data to zeros
     FloatArray2D& reset(int num_rows, int num_cols) {
-        if(data_ != 0) {
-            delete[] data_;
-        }
+        delete[] data_;
+
         if(num_rows == 0 || num_cols == 0) {
             std::cerr << "FloatArray2D::reset: Asked to reset to nothing. That's weird" << std::endl;
             exit(EXIT_FAILURE);
