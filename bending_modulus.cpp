@@ -2,6 +2,8 @@
 // Tom Joseph <thomas.joseph@@pennmedicine.upenn.edu>
 // Reimplemented from code from Itay Barel, Frank Brown, and others at UC Santa Barbara
 // Algorithm from: Levine et al, JACS 2014, 136, 13582-13585. dx.doi.org/10.1021/ja507910r
+// References to lines in comments below refer to old_vmd_bending_modulus.cpp (which is a modified
+// version of the original source code)
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -543,20 +545,20 @@ int main(int argc, char *argv[]) {
     // After all, there aren't that many frames
     // FIXME: In the original code, many of these are zeroed out for each frame
     // Original code called these dz1xqS, dz2xqS, dz1yqS, dz2yzS
-    auto dz_upper_xqS = new fftwf_complex[num_grid_pairs];
-    auto dz_upper_yqS = new fftwf_complex[num_grid_pairs];
-    auto dz_lower_xqS = new fftwf_complex[num_grid_pairs];
-    auto dz_lower_yqS = new fftwf_complex[num_grid_pairs];
-    auto dz_upper_xqS_raw = new float[grid_size*grid_size];
-    auto dz_upper_yqS_raw = new float[grid_size*grid_size];
-    auto dz_lower_xqS_raw = new float[grid_size*grid_size];
-    auto dz_lower_yqS_raw = new float[grid_size*grid_size];
-    auto dz_xqS = new fftwf_complex[num_grid_pairs];
-    auto dz_yqS = new fftwf_complex[num_grid_pairs];
-    auto dz_xqS_copy = new fftwf_complex[num_grid_pairs];
-    auto dz_yqS_copy = new fftwf_complex[num_grid_pairs];
-    auto dz_xqS_raw = new float[grid_size*grid_size];
-    auto dz_yqS_raw = new float[grid_size*grid_size];
+    auto z_height_upper_wave_x_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_upper_wave_y_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_lower_wave_x_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_lower_wave_y_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_upper_wave_x_fft_raw = new float[grid_size*grid_size];
+    auto z_height_upper_wave_y_fft_raw = new float[grid_size*grid_size];
+    auto z_height_lower_wave_x_fft_raw = new float[grid_size*grid_size];
+    auto z_height_lower_wave_y_fft_raw = new float[grid_size*grid_size];
+    auto z_height_grad_x_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_grad_y_fft = new fftwf_complex[num_grid_pairs];
+    auto z_height_grad_x_fft_copy = new fftwf_complex[num_grid_pairs];
+    auto z_height_grad_y_fft_copy = new fftwf_complex[num_grid_pairs];
+    auto z_height_grad_x_fft_raw = new float[grid_size*grid_size];
+    auto z_height_grad_y_fft_raw = new float[grid_size*grid_size];
     double norm_avg = 0.0, dot_cum = 0.0, director_avg = 0.0;
     auto norm_upper_x_raw = new float[grid_size*grid_size];
     auto norm_upper_y_raw = new float[grid_size*grid_size];
@@ -569,8 +571,8 @@ int main(int argc, char *argv[]) {
     const int fft_size[2] = {grid_size, grid_size};
     auto spectrum_plan = fftwf_plan_many_dft_r2c(2, fft_size, 1, z_height_raw, nullptr, 1, 0,
             z_height_fft, nullptr, 1, 0, FFTW_MEASURE);
-    auto inv_plan = fftwf_plan_many_dft_c2r(2, fft_size, 1, dz_upper_xqS, NULL, 1, 0,
-                                               dz_upper_xqS_raw, NULL, 1, 0, FFTW_MEASURE);
+    auto inv_plan = fftwf_plan_many_dft_c2r(2, fft_size, 1, z_height_upper_wave_x_fft, NULL, 1, 0,
+                                               z_height_upper_wave_x_fft_raw, NULL, 1, 0, FFTW_MEASURE);
 
     // Go through individual frames
     // Lipid number density, or phi0 is, I guess, number of lipids per XY area divided by 2
@@ -664,15 +666,15 @@ int main(int argc, char *argv[]) {
                 float norm = box_xy_magnitude / (grid_size*grid_size);
                 // Note the double subscript on the fftwf_complex values, since these are
                 // really just float[2], for real and complex components
-                dz_upper_xqS[k][0] = -norm*qi*z_height_upper_fft[k][1]*2*M_PI*box_a; // dz1xqS
-                dz_upper_xqS[k][1] = -norm*qi*z_height_upper_fft[k][0]*2*M_PI*box_a;
-                dz_upper_yqS[k][0] = -norm*qj*z_height_upper_fft[k][1]*2*M_PI*box_b; // dz1yqS
-                dz_upper_yqS[k][1] = -norm*qj*z_height_upper_fft[k][0]*2*M_PI*box_b;
+                z_height_upper_wave_x_fft[k][0] = -norm*qi*z_height_upper_fft[k][1]*2*M_PI*box_a; // dz1xqS
+                z_height_upper_wave_x_fft[k][1] = -norm*qi*z_height_upper_fft[k][0]*2*M_PI*box_a;
+                z_height_upper_wave_y_fft[k][0] = -norm*qj*z_height_upper_fft[k][1]*2*M_PI*box_b; // dz1yqS
+                z_height_upper_wave_y_fft[k][1] = -norm*qj*z_height_upper_fft[k][0]*2*M_PI*box_b;
 
-                dz_lower_xqS[k][0] = -norm*qi*z_height_lower_fft[k][1]*2*M_PI*box_a; // dz2xqS
-                dz_lower_xqS[k][1] = -norm*qi*z_height_lower_fft[k][0]*2*M_PI*box_a;
-                dz_lower_yqS[k][0] = -norm*qj*z_height_lower_fft[k][1]*2*M_PI*box_b; // dz2yqS
-                dz_lower_yqS[k][1] = -norm*qj*z_height_lower_fft[k][0]*2*M_PI*box_b;
+                z_height_lower_wave_x_fft[k][0] = -norm*qi*z_height_lower_fft[k][1]*2*M_PI*box_a; // dz2xqS
+                z_height_lower_wave_x_fft[k][1] = -norm*qi*z_height_lower_fft[k][0]*2*M_PI*box_a;
+                z_height_lower_wave_y_fft[k][0] = -norm*qj*z_height_lower_fft[k][1]*2*M_PI*box_b; // dz2yqS
+                z_height_lower_wave_y_fft[k][1] = -norm*qj*z_height_lower_fft[k][0]*2*M_PI*box_b;
             }
         }
 
@@ -690,59 +692,59 @@ int main(int argc, char *argv[]) {
 
                 // For some reason we don't worry about the Nyquist element here
 
-                dz_xqS[k][0] = -qi*z_height_fft[k][1]*2*M_PI*box_a;
-                dz_xqS[k][1] =  qi*z_height_fft[k][0]*2*M_PI*box_a;
-                dz_yqS[k][0] = -qj*z_height_fft[k][1]*2*M_PI*box_b;
-                dz_yqS[k][1] =  qj*z_height_fft[k][0]*2*M_PI*box_b;
+                z_height_grad_x_fft[k][0] = -qi*z_height_fft[k][1]*2*M_PI*box_a;
+                z_height_grad_x_fft[k][1] =  qi*z_height_fft[k][0]*2*M_PI*box_a;
+                z_height_grad_y_fft[k][0] = -qj*z_height_fft[k][1]*2*M_PI*box_b;
+                z_height_grad_y_fft[k][1] =  qj*z_height_fft[k][0]*2*M_PI*box_b;
             }
         }
 
         // Backward transform to get derivatives in real space (Line: 1103)
-        fftwf_execute_dft_c2r(inv_plan, dz_upper_xqS, dz_upper_xqS_raw);
-        fftwf_execute_dft_c2r(inv_plan, dz_upper_yqS, dz_upper_yqS_raw);
-        fftwf_execute_dft_c2r(inv_plan, dz_lower_xqS, dz_lower_xqS_raw);
-        fftwf_execute_dft_c2r(inv_plan, dz_lower_yqS, dz_lower_yqS_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_upper_wave_x_fft, z_height_upper_wave_x_fft_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_upper_wave_y_fft, z_height_upper_wave_y_fft_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_lower_wave_x_fft, z_height_lower_wave_x_fft_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_lower_wave_y_fft, z_height_lower_wave_y_fft_raw);
 
-        // Now multiply box_a and box_b again by dz_xqS and dz_yqS
+        // Now multiply box_a and box_b again by z_height_grad_x_fft and z_height_grad_y_fft
         // (Line: 1113)
-        // dhxqSd -> dz_xqS_copy; dhxqS -> dz_xqS
+        // dhxqSd -> z_height_grad_x_fft_copy; dhxqS -> z_height_grad_x_fft
         for(int k = 0; k < num_grid_pairs; k++) {
-            dz_xqS_copy[k][0] = box_a*dz_xqS[k][0];
-            dz_xqS_copy[k][1] = box_a*dz_xqS[k][1];
-            dz_yqS_copy[k][0] = box_b*dz_yqS[k][0];
-            dz_yqS_copy[k][0] = box_b*dz_yqS[k][1];
+            z_height_grad_x_fft_copy[k][0] = box_a*z_height_grad_x_fft[k][0];
+            z_height_grad_x_fft_copy[k][1] = box_a*z_height_grad_x_fft[k][1];
+            z_height_grad_y_fft_copy[k][0] = box_b*z_height_grad_y_fft[k][0];
+            z_height_grad_y_fft_copy[k][0] = box_b*z_height_grad_y_fft[k][1];
         }
 
-        fftwf_execute_dft_c2r(inv_plan, dz_xqS_copy, dz_xqS_raw);
-        fftwf_execute_dft_c2r(inv_plan, dz_yqS_copy, dz_yqS_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_grad_x_fft_copy, z_height_grad_x_fft_raw);
+        fftwf_execute_dft_c2r(inv_plan, z_height_grad_y_fft_copy, z_height_grad_y_fft_raw);
 
         // normalize: f = (1/L) Sum f_q exp(iq.r) (Line: 1123)
-        // dz1x1D -> dz_upper_xqS_raw
+        // dz1x1D -> z_height_upper_wave_x_fft_raw
         // Original code iterates over i, j for some reason even though these are never used: k = i*ngrid+j
         for(int k = 0; k < (grid_size*grid_size); k++) {
-            dz_upper_xqS_raw[k] /= box_a;
-            dz_upper_yqS_raw[k] /= box_b;
-            dz_lower_xqS_raw[k] /= box_a;
-            dz_lower_yqS_raw[k] /= box_b;
+            z_height_upper_wave_x_fft_raw[k] /= box_a;
+            z_height_upper_wave_y_fft_raw[k] /= box_b;
+            z_height_lower_wave_x_fft_raw[k] /= box_a;
+            z_height_lower_wave_y_fft_raw[k] /= box_b;
 
             // Normals
-            dz_xqS_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_a;
-            dz_yqS_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_b;
+            z_height_grad_x_fft_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_a;
+            z_height_grad_y_fft_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_b;
 
             float root_ginv_upper = 1.0, root_ginv_lower = 1.0;
             if (!should_norm_z1) {
-                root_ginv_upper = 1.0 / sqrt(1.0 + dz_upper_xqS_raw[k] * dz_upper_xqS_raw[k]
-                                             + dz_upper_yqS_raw[k] * dz_upper_yqS_raw[k]);
-                root_ginv_lower = 1.0 / sqrt(1.0 + dz_lower_xqS_raw[k] * dz_lower_xqS_raw[k]
-                                             + dz_lower_yqS_raw[k] * dz_lower_yqS_raw[k]);
+                root_ginv_upper = 1.0 / sqrt(1.0 + z_height_upper_wave_x_fft_raw[k] * z_height_upper_wave_x_fft_raw[k]
+                                             + z_height_upper_wave_y_fft_raw[k] * z_height_upper_wave_y_fft_raw[k]);
+                root_ginv_lower = 1.0 / sqrt(1.0 + z_height_lower_wave_x_fft_raw[k] * z_height_lower_wave_x_fft_raw[k]
+                                             + z_height_lower_wave_y_fft_raw[k] * z_height_lower_wave_y_fft_raw[k]);
             }
 
-            norm_upper_x_raw[k] = dz_upper_xqS_raw[k] * root_ginv_upper;
-            norm_upper_y_raw[k] = dz_upper_yqS_raw[k] * root_ginv_upper;
+            norm_upper_x_raw[k] = z_height_upper_wave_x_fft_raw[k] * root_ginv_upper;
+            norm_upper_y_raw[k] = z_height_upper_wave_y_fft_raw[k] * root_ginv_upper;
             norm_upper_z_raw[k] = -root_ginv_upper;
             // Note signs reversed for lower leaflet
-            norm_lower_x_raw[k] = -dz_lower_xqS_raw[k] * root_ginv_lower;
-            norm_lower_y_raw[k] = -dz_lower_yqS_raw[k] * root_ginv_lower;
+            norm_lower_x_raw[k] = -z_height_lower_wave_x_fft_raw[k] * root_ginv_lower;
+            norm_lower_y_raw[k] = -z_height_lower_wave_y_fft_raw[k] * root_ginv_lower;
             norm_lower_z_raw[k] = root_ginv_lower;
 
             norm_avg += sqrt(norm_lower_x_raw[k] * norm_lower_x_raw[k]
@@ -751,14 +753,16 @@ int main(int argc, char *argv[]) {
                         + sqrt(norm_lower_x_raw[k] * norm_lower_x_raw[k]
                                + norm_lower_y_raw[k] * norm_lower_y_raw[k]
                                + norm_lower_z_raw[k] * norm_lower_z_raw[k]);
-            float inv_root = 1 / sqrt(1.0 + dz_xqS_raw[k] * dz_xqS_raw[k] + dz_yqS_raw[k] * dz_yqS_raw[k]);
+            float inv_root = 1 / sqrt(1.0 + z_height_grad_x_fft_raw[k] * z_height_grad_x_fft_raw[k] + z_height_grad_y_fft_raw[k] * z_height_grad_y_fft_raw[k]);
 
             // Nnormh is never read in the original source code, so we won't bother to calculate it here
+            // (dhx1D and dhy1D are used instead to compute Nnormhx1D and Nnormhy1D)
+            // Line 1157
             // Nnormh[k][0] = dhx1D[k]*invRoot;
             // Nnormh[k][1] = dhy1D[k]*invRoot;
 
-            dz_xqS_raw[k] *= inv_root; // dhx1D
-            dz_yqS_raw[k] *= inv_root; // dhy1D
+            z_height_grad_x_fft_raw[k] *= inv_root; // dhx1D
+            z_height_grad_y_fft_raw[k] *= inv_root; // dhy1D
         }
 
         // Number of lipids per grid cell involved in tilt calculations
@@ -903,13 +907,13 @@ int main(int argc, char *argv[]) {
         // Director sum and difference: up and um
         FloatArray2D tilt_sum_x, tilt_sum_y, director_sum_x, director_sum_y;
         FloatArray2D tilt_diff_x, tilt_diff_y, director_diff_x, director_diff_y;
-        tilt_sum_x.init_from(tilt_upper_x).add(tilt_lower_x);
+        tilt_sum_x.init_from(tilt_upper_x).add(tilt_lower_x); // dp = t1 + t2
         tilt_sum_y.init_from(tilt_upper_y).add(tilt_lower_y);
-        tilt_diff_x.init_from(tilt_upper_x).subtract(tilt_lower_x);
+        tilt_diff_x.init_from(tilt_upper_x).subtract(tilt_lower_x); // dm = t1 - t2
         tilt_diff_y.init_from(tilt_upper_y).subtract(tilt_lower_y);
-        director_sum_x.init_from(director_upper_x).add(director_lower_x);
+        director_sum_x.init_from(director_upper_x).add(director_lower_x); // up = n1 + n2
         director_sum_y.init_from(director_upper_y).add(director_lower_y);
-        director_diff_x.init_from(director_upper_x).subtract(director_lower_x);
+        director_diff_x.init_from(director_upper_x).subtract(director_lower_x); // um = n1 - n2
         director_diff_y.init_from(director_upper_y).subtract(director_lower_y);
         // TODO: Update umAcc matrices, but that looks messed up in the original source:
         //   --snip--
@@ -928,7 +932,8 @@ int main(int argc, char *argv[]) {
         // /************* Normals *****************************************/
         // normhx1D[i*ngrid+j]=normh[i*ngrid + j][0];
         // normhy1D[i*ngrid+j]=normh[i*ngrid + j][1];
-        
+
+        // Nnormhx1D is apparently never read again
         // Nnormhx1D[i*ngrid+j] =dhx1D[i*ngrid+j];// Nnormh[i*ngrid+j][0];
         // Nnormhy1D[i*ngrid+j] = dhy1D[i*ngrid+j];//Nnormh[i*ngrid+j][1];
         // /***************************************************************/
@@ -943,12 +948,12 @@ int main(int argc, char *argv[]) {
         // hqS: ?; Lxy: box lengths
         // We did the FFTs for z_height and z_thickness above
         float box_xy_magnitude = sqrtf(box_a*box_b);
-        FloatArray2D z_height_real(grid_size, grid_size), z_height_imaginary(grid_size, grid_size);
-        FloatArray2D z_thickness_real(grid_size, grid_size), z_thickness_imaginary(grid_size, grid_size);
+        FloatArray2D z_height_real(grid_size, grid_size), z_height_imag(grid_size, grid_size);
+        FloatArray2D z_thickness_real(grid_size, grid_size), z_thickness_imag(grid_size, grid_size);
         //      fullArray(ngrid, hqR, hqI, hqS, Lxy); // multiply by lx/N^2 factor inside
-        fill_full_array(z_height_real, z_height_imaginary, z_height_fft, box_xy_magnitude);
+        fill_full_array(z_height_real, z_height_imag, z_height_fft, box_xy_magnitude);
         //      fullArray(ngrid, tqR, tqI, tqS, Lxy);
-        fill_full_array(z_thickness_real, z_thickness_imaginary, z_thickness_fft, box_xy_magnitude);
+        fill_full_array(z_thickness_real, z_thickness_imag, z_thickness_fft, box_xy_magnitude);
 
         // if(AREA) (Line 1424)
         // Fill in lower half of complex plane
@@ -969,21 +974,14 @@ int main(int argc, char *argv[]) {
 
         // Convert a bunch of stuff to raw arrays in preparation for more FFTs
 
-
         // Do FFT of tilt sum and difference vectors
         // And director sum and difference vectors
-        // t1x1D, t1y1D
-        // t1x1D is the raw version of t1 (top tilt vector, x component)
-        // Tilt fields: dpx1D, dpy1D, dmx1D, dmy1D
-        // "Symm and antisymm director fields": upx1D, upy1D, umx1D, umy1D
         // p: sum; m: difference
 
-        
         // fftwf_execute_dft_r2c(spectrum_plan, t1x1D, t1xqS);
         // fftwf_execute_dft_r2c(spectrum_plan, t1y1D, t1yqS);
         auto tilt_upper_x_fft = do_dft2d_r2c(spectrum_plan, tilt_upper_x);
         auto tilt_upper_y_fft = do_dft2d_r2c(spectrum_plan, tilt_upper_y);
-
         auto tilt_sum_x_fft = do_dft2d_r2c(spectrum_plan, tilt_sum_x);
         auto tilt_sum_y_fft = do_dft2d_r2c(spectrum_plan, tilt_sum_y);
         auto tilt_diff_x_fft = do_dft2d_r2c(spectrum_plan, tilt_diff_x);
@@ -997,7 +995,7 @@ int main(int argc, char *argv[]) {
         //  ~Line 1451
         // dhx1D, dhy1D
         // inv_plan(dhxqSd) -> dhx1D
-        // dhxqSd -> dz_xqS_copy; dhxqS -> dz_xqS
+        // dhxqSd -> z_height_grad_x_fft_copy; dhxqS -> z_height_grad_x_fft
         // NnormhxqS -> norm_x_fft
         // NnormhyqS -> norm_y_fft
         // normhxR,I comes from fullArray(..., dhxqS, ...)
@@ -1006,33 +1004,124 @@ int main(int argc, char *argv[]) {
         // NnormhxR,I comes from fullArray(..., NnormhxqS, ...)
         //     NnormhxqS is commented as "tilt of top monolayer" (x-component) (Line: 297)
         //     but I don't believe that, since t1yqS is also annotated that way.
-        auto norm_x_fft = do_dft2d_r2c(grid_size, spectrum_plan, dz_xqS_raw);
-        auto norm_y_fft = do_dft2d_r2c(grid_size, spectrum_plan, dz_yqS_raw);
+        auto norm_x_fft = do_dft2d_r2c(grid_size, spectrum_plan, z_height_grad_x_fft_raw);
+        auto norm_y_fft = do_dft2d_r2c(grid_size, spectrum_plan, z_height_grad_y_fft_raw);
 
         // We use fullArray() now to, I guess, convert an array of
         // fftw_complex back into separate real and imaginary components in a matrix
-        FloatArray2D norm_x_fft_real(grid_size, grid_size), norm_x_fft_imaginary(grid_size, grid_size);
-        FloatArray2D norm_y_fft_real(grid_size, grid_size), norm_y_fft_imaginary(grid_size, grid_size);
-        fill_full_array(norm_x_fft_real, norm_x_fft_imaginary, norm_x_fft, box_xy_magnitude);
-        fill_full_array(norm_y_fft_real, norm_y_fft_imaginary, norm_y_fft, box_xy_magnitude);
-
-        // Not sure what the difference is between this and the z_height variables
-//        fullArray(ngrid,normhxR,normhxI,dhxqS,Lxy);
-//        fullArray(ngrid,normhyR,normhyI,dhyqS,Lxy);
-        fill_full_array(...);
-
+        // Separate Z-height gradient into real and imaginary components
+//        fullArray(ngrid,NnormhxR,NnormhxI,NnormhxqS,Lxy);
+//        fullArray(ngrid,NnormhyR,NnormhyI,NnormhyqS,Lxy);
+        FloatArray2D norm_x_fft_real(grid_size, grid_size), norm_x_fft_imag(grid_size, grid_size);
+        FloatArray2D norm_y_fft_real(grid_size, grid_size), norm_y_fft_imag(grid_size, grid_size);
+        fill_full_array(norm_x_fft_real, norm_x_fft_imag, norm_x_fft, box_xy_magnitude);
+        fill_full_array(norm_y_fft_real, norm_y_fft_imag, norm_y_fft, box_xy_magnitude);
 
 //        fullArray(ngrid,t1xR,t1xI,t1xqS,Lxy);
 //        fullArray(ngrid,t1yR,t1yI,t1yqS,Lxy);
-        FloatArray2D tilt_upper_x_real(grid_size, grid_size), tilt_upper_x_imaginary(grid_size, grid_size);
-        FloatArray2D tilt_upper_y_real(grid_size, grid_size), tilt_upper_y_imaginary(grid_size, grid_size);
-        fill_full_array(tilt_upper_x_real, tilt_upper_x_imaginary, tilt_upper_x_fft, box_xy_magnitude);
-        fill_full_array(tilt_upper_y_real, tilt_upper_y_imaginary, tilt_upper_y_fft, box_xy_magnitude);
+        FloatArray2D tilt_upper_x_real(grid_size, grid_size), tilt_upper_x_imag(grid_size, grid_size);
+        FloatArray2D tilt_upper_y_real(grid_size, grid_size), tilt_upper_y_imag(grid_size, grid_size);
+        fill_full_array(tilt_upper_x_real, tilt_upper_x_imag, tilt_upper_x_fft, box_xy_magnitude);
+        fill_full_array(tilt_upper_y_real, tilt_upper_y_imag, tilt_upper_y_fft, box_xy_magnitude);
 
+//        fullArray(ngrid,normhxR,normhxI,dhxqS,Lxy);
+//        fullArray(ngrid,normhyR,normhyI,dhyqS,Lxy);
+        FloatArray2D z_height_grad_x_fft_real(grid_size, grid_size), z_height_grad_x_fft_imag(grid_size, grid_size);
+        FloatArray2D z_height_grad_y_fft_real(grid_size, grid_size), z_height_grad_y_fft_imag(grid_size, grid_size);
+        fill_full_array(z_height_grad_x_fft_real, z_height_grad_x_fft_imag, z_height_grad_x_fft, box_xy_magnitude);
+        fill_full_array(z_height_grad_y_fft_real, z_height_grad_y_fft_imag, z_height_grad_y_fft, box_xy_magnitude);
 
+        // t1x1D, t1y1D
+        // t1x1D is the raw version of t1 (top tilt vector, x component)
+        // Tilt fields: dpx1D, dpy1D, dmx1D, dmy1D
+        // "Symm and antisymm director fields": upx1D, upy1D, umx1D, umy1D
 
+//        fullArray(ngrid,dpxR,dpxI,dpxqS,Lxy);
+//        fullArray(ngrid,dpyR,dpyI,dpyqS,Lxy);
+        FloatArray2D tilt_sum_x_fft_real(grid_size, grid_size), tilt_sum_x_fft_imag(grid_size, grid_size);
+        FloatArray2D tilt_sum_y_fft_real(grid_size, grid_size), tilt_sum_y_fft_imag(grid_size, grid_size);
+        fill_full_array(tilt_sum_x_fft_real, tilt_sum_x_fft_imag, tilt_sum_x_fft, box_xy_magnitude);
+        fill_full_array(tilt_sum_y_fft_real, tilt_sum_y_fft_imag, tilt_sum_y_fft, box_xy_magnitude);
+//        fullArray(ngrid,dmxR,dmxI,dmxqS,Lxy);
+//        fullArray(ngrid,dmyR,dmyI,dmyqS,Lxy);
+        FloatArray2D tilt_diff_x_fft_real(grid_size, grid_size), tilt_diff_x_fft_imag(grid_size, grid_size);
+        FloatArray2D tilt_diff_y_fft_real(grid_size, grid_size), tilt_diff_y_fft_imag(grid_size, grid_size);
+        fill_full_array(tilt_diff_x_fft_real, tilt_diff_x_fft_imag, tilt_diff_x_fft, box_xy_magnitude);
+        fill_full_array(tilt_diff_y_fft_real, tilt_diff_y_fft_imag, tilt_diff_y_fft, box_xy_magnitude);
+//        fullArray(ngrid,upxR,upxI,upxqS,Lxy);
+//        fullArray(ngrid,upyR,upyI,upyqS,Lxy);
+        FloatArray2D director_sum_x_fft_real(grid_size, grid_size), director_sum_x_fft_imag(grid_size, grid_size);
+        FloatArray2D director_sum_y_fft_real(grid_size, grid_size), director_sum_y_fft_imag(grid_size, grid_size);
+        fill_full_array(director_sum_x_fft_real, director_sum_x_fft_imag, director_sum_x_fft, box_xy_magnitude);
+        fill_full_array(director_sum_y_fft_real, director_sum_y_fft_imag, director_sum_y_fft, box_xy_magnitude);
+//        fullArray(ngrid,umxR,umxI,umxqS,Lxy);
+//        fullArray(ngrid,umyR,umyI,umyqS,Lxy);
+        FloatArray2D director_diff_x_fft_real(grid_size, grid_size), director_diff_x_fft_imag(grid_size, grid_size);
+        FloatArray2D director_diff_y_fft_real(grid_size, grid_size), director_diff_y_fft_imag(grid_size, grid_size);
+        fill_full_array(director_diff_x_fft_real, director_diff_x_fft_imag, director_diff_x_fft, box_xy_magnitude);
+        fill_full_array(director_diff_y_fft_real, director_diff_y_fft_imag, director_diff_y_fft, box_xy_magnitude);
 
-        // ngrid -> grid_size
+        // Line 1477
+        // Decompose all this stuff into parallel and perpendicular components, real and imaginary
+        // dmpar, dmper...
+        FloatArray2D tilt_sum_parallel_real(grid_size, grid_size), tilt_sum_parallel_imag(grid_size, grid_size);
+        FloatArray2D tilt_sum_perp_real(grid_size, grid_size), tilt_sum_perp_imag(grid_size, grid_size);
+        FloatArray2D tilt_diff_parallel_real(grid_size, grid_size), tilt_diff_parallel_imag(grid_size, grid_size);
+        FloatArray2D tilt_diff_perp_real(grid_size, grid_size), tilt_diff_perp_imag(grid_size, grid_size);
+        FloatArray2D director_sum_parallel_real(grid_size, grid_size), director_sum_parallel_imag(grid_size, grid_size);
+        FloatArray2D director_sum_perp_real(grid_size, grid_size), director_sum_perp_imag(grid_size, grid_size);
+        FloatArray2D director_diff_parallel_real(grid_size, grid_size), director_diff_parallel_imag(grid_size, grid_size);
+        FloatArray2D director_diff_perp_real(grid_size, grid_size), director_diff_perp_imag(grid_size, grid_size);
+        FloatArray2D z_height_grad_parallel_real(grid_size, grid_size), z_height_grad_parallel_imag(grid_size, grid_size);
+        FloatArray2D z_height_grad_perp_real(grid_size, grid_size), z_height_grad_perp_imag(grid_size, grid_size);
+        FloatArray2D norm_parallel_real(grid_size, grid_size), norm_parallel_imag(grid_size, grid_size);
+        FloatArray2D norm_perp_real(grid_size, grid_size), norm_perp_imag(grid_size, grid_size);
+
+        for(int i = 0; i < grid_size; i++) {
+            for(int j = 0; j < grid_size; j++) {
+                // The parallel and perpendicular components are not defined at q=0, whatever that means,
+                // so we leave them as zero
+                if(i == 0 && j == 0) {
+                    continue;
+                }
+                float sinq_ij = sin_q_matrix.get(i, j), cosq_ij = cos_q_matrix.get(i, j);
+                // dmxR = director_
+                tilt_sum_parallel_real.set(i, j, tilt_sum_x_fft_real.get(i, j) * cosq_ij + tilt_sum_y_fft_real.get(i, j) * sinq_ij);
+                tilt_sum_perp_real.set(i, j, -tilt_sum_x_fft_real.get(i, j) * sinq_ij + tilt_sum_y_fft_real.get(i, j) * cosq_ij);
+                tilt_sum_parallel_imag.set(i, j, tilt_sum_x_fft_imag.get(i, j) * cosq_ij + tilt_sum_y_fft_imag.get(i, j) * sinq_ij);
+                tilt_sum_perp_imag.set(i, j, -tilt_sum_x_fft_imag.get(i, j) * sinq_ij + tilt_sum_y_fft_imag.get(i, j) * cosq_ij);
+
+                tilt_diff_parallel_real.set(i, j, tilt_diff_x_fft_real.get(i, j) * cosq_ij + tilt_diff_y_fft_real.get(i, j) * sinq_ij);
+                tilt_diff_perp_real.set(i, j, -tilt_diff_x_fft_real.get(i, j) * sinq_ij + tilt_diff_y_fft_real.get(i, j) * cosq_ij);
+                tilt_diff_parallel_imag.set(i, j, tilt_diff_x_fft_imag.get(i, j) * cosq_ij + tilt_diff_y_fft_imag.get(i, j) * sinq_ij);
+                tilt_diff_perp_imag.set(i, j, -tilt_diff_x_fft_imag.get(i, j) * sinq_ij + tilt_diff_y_fft_imag.get(i, j) * cosq_ij);
+
+                director_sum_parallel_real.set(i, j, director_sum_x_fft_real.get(i, j) * cosq_ij + director_sum_y_fft_real.get(i, j) * sinq_ij);
+                director_sum_perp_real.set(i, j, -director_sum_x_fft_real.get(i, j) * sinq_ij + director_sum_y_fft_real.get(i, j) * cosq_ij);
+                director_sum_parallel_imag.set(i, j, director_sum_x_fft_imag.get(i, j) * cosq_ij + director_sum_y_fft_imag.get(i, j) * sinq_ij);
+                director_sum_perp_imag.set(i, j, -director_sum_x_fft_imag.get(i, j) * sinq_ij + director_sum_y_fft_imag.get(i, j) * cosq_ij);
+
+                director_diff_parallel_real.set(i, j, director_diff_x_fft_real.get(i, j) * cosq_ij + director_diff_y_fft_real.get(i, j) * sinq_ij);
+                director_diff_perp_real.set(i, j, -director_diff_x_fft_real.get(i, j) * sinq_ij + director_diff_y_fft_real.get(i, j) * cosq_ij);
+                director_diff_parallel_imag.set(i, j, director_diff_x_fft_imag.get(i, j) * cosq_ij + director_diff_y_fft_imag.get(i, j) * sinq_ij);
+                director_diff_perp_imag.set(i, j, -director_diff_x_fft_imag.get(i, j) * sinq_ij + director_diff_y_fft_imag.get(i, j) * cosq_ij);
+
+                // Normals (Line 1513)
+                // z_height_grad...
+                z_height_grad_parallel_real.set(i, j, z_height_grad_x_fft_real.get(i, j) * cosq_ij + z_height_grad_y_fft_real.get(i, j) * sinq_ij);
+                z_height_grad_perp_real.set(i, j, -z_height_grad_x_fft_real.get(i, j) * sinq_ij + z_height_grad_y_fft_real.get(i, j) * cosq_ij);
+                z_height_grad_parallel_imag.set(i, j, z_height_grad_x_fft_imag.get(i, j) * cosq_ij + z_height_grad_y_fft_imag.get(i, j) * sinq_ij);
+                z_height_grad_perp_imag.set(i, j, -z_height_grad_x_fft_imag.get(i, j) * sinq_ij + z_height_grad_y_fft_imag.get(i, j) * cosq_ij);
+
+                // We are concerned here with Nnormhx[RI] and Nnormhy[RI] (norm_x_fft_real, norm_y_fft_real, ...)
+                norm_parallel_real.set(i, j, norm_x_fft_real.get(i, j) * cosq_ij + norm_y_fft_real.get(i, j) * sinq_ij);
+                norm_perp_real.set(i, j, -norm_x_fft_real.get(i, j) * sinq_ij + norm_y_fft_real.get(i, j) * cosq_ij);
+                norm_parallel_imag.set(i, j, norm_x_fft_imag.get(i, j) * cosq_ij + norm_y_fft_imag.get(i, j) * sinq_ij);
+                norm_perp_imag.set(i, j, -norm_x_fft_imag.get(i, j) * sinq_ij + norm_y_fft_imag.get(i, j) * cosq_ij);
+            }
+        }
+
+        // TODO: Output per-frame things
 
         delete[] norm_x_fft;
         delete[] norm_y_fft;
@@ -1051,20 +1140,20 @@ int main(int argc, char *argv[]) {
 
     // As a plugin, we don't want to pollute the heap
     delete[] z_height_raw;
-    delete[] dz_upper_xqS;
-    delete[] dz_upper_yqS;
-    delete[] dz_lower_xqS;
-    delete[] dz_lower_yqS;
-    delete[] dz_upper_xqS_raw;
-    delete[] dz_upper_yqS_raw;
-    delete[] dz_lower_xqS_raw;
-    delete[] dz_lower_yqS_raw;
-    delete[] dz_xqS;
-    delete[] dz_yqS;
-    delete[] dz_xqS_copy;
-    delete[] dz_yqS_copy;
-    delete[] dz_xqS_raw;
-    delete[] dz_yqS_raw;
+    delete[] z_height_upper_wave_x_fft;
+    delete[] z_height_upper_wave_y_fft;
+    delete[] z_height_lower_wave_x_fft;
+    delete[] z_height_lower_wave_y_fft;
+    delete[] z_height_upper_wave_x_fft_raw;
+    delete[] z_height_upper_wave_y_fft_raw;
+    delete[] z_height_lower_wave_x_fft_raw;
+    delete[] z_height_lower_wave_y_fft_raw;
+    delete[] z_height_grad_x_fft;
+    delete[] z_height_grad_y_fft;
+    delete[] z_height_grad_x_fft_copy;
+    delete[] z_height_grad_y_fft_copy;
+    delete[] z_height_grad_x_fft_raw;
+    delete[] z_height_grad_y_fft_raw;
     delete[] norm_upper_x_raw;
     delete[] norm_upper_y_raw;
     delete[] norm_upper_z_raw;
