@@ -215,6 +215,58 @@ void create_q_matrix(int grid_size, FloatArray2D &qx_matrix, FloatArray2D &qy_ma
     }
 }
 
+// Caller must delete the return value
+float *average_q_in_fft(FloatArray2D &fft_array, int nyquist = 0) {
+    assert(fft_array.num_rows() == fft_array.num_cols());
+    int grid_size = fft_array.num_rows();
+    size_t out_length = (grid_size+4)*(grid_size+2)/8;
+    auto out = new float[out_length];
+
+    auto qs_x = FloatArray2D(grid_size, grid_size), qs_y = FloatArray2D(grid_size, grid_size);
+    // The original source code tries to save a few bytes if nyquest ("Ny") is zero
+    auto count_in = new int[out_length];
+    int count_out = 0;
+
+    // Only using the ternary operator here because the original source code uses it.
+    // For the record, the ternary operator was a terrible idea that should be nuked from orbit.
+    for(int i = 0; i < grid_size; i++) {
+        for(int j = 0; j < grid_size; j++) {
+            qs_x.set(i, j, (i < grid_size/2) ? i : grid_size - i);
+            qs_y.set(i, j, (j < grid_size/2) ? j : grid_size - j);
+        }
+    }
+
+    // Scan through the unique values of |q|
+    // For tilt quantities, nyquist==0
+    for(int i = 0; i < grid_size/2 + nyquist; i++) {
+        for(int j = i; j < grid_size/2 + nyquist; j++) {
+            for(int k = 0; k < grid_size; k++) {
+                for(int l = 0; l < grid_size; l++) {
+                    auto qs_x_ij = qs_x.get(i, j), qs_x_kl = qs_x.get(k, l);
+                    auto qs_y_ij = qs_y.get(i, j), qs_y_kl = qs_y.get(k, l);
+                    if((qs_x_ij == qs_x_kl && qs_y_ij == qs_y_kl) || \
+                       (qs_y_ij == qs_x_kl && qs_x_ij == qs_y_kl)) {
+                        out[count_out] += fft_array.get(k, l);
+                        count_in[count_out]++;
+                    }
+                }
+            }
+            count_out++;
+        }
+    }
+    // TODO: error check. Because we were lazy about choosing out_length (uniq_Ny) we can't do this
+    // if((Ny==0) && count_out != uniq_Ny){cout << "count_out != uniq_Ny " << count_out << " "<< uniq_Ny <<endl;}
+
+    // Some sort of normalization
+    for(int i = 9; i < count_out; i++) {
+        out[i] /= count_in[i];
+    }
+
+    delete[] count_in;
+    return out;
+}
+
+
 // This mod function does a second round of modulo to handle mildly negative numbers.
 // That is, this function requires that |x| < n
 int smarter_mod(int x, int n) {
