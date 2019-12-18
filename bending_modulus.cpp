@@ -13,46 +13,12 @@
 #include <cassert>
 #include <fftw3.h>
 #include "floatarray2d.h"
+#include "bending_modulus.h"
 
 using namespace std;
 
 constexpr float PHI0IN = 0.01588405482;
 
-// Slurps up all lines from a text file
-// TODO: Return false on error
-bool load_all_lines(const string &filename, std::vector<string> &out_lines) {
-    std::ifstream f(filename);
-    std::string line;
-    out_lines.clear();
-    while(std::getline(f, line)) {
-        out_lines.push_back(line);
-    }
-    return true;
-}
-
-// Converts three vectors of strings of x, y, z coordinates respectively into one
-// 2D vector of floats.
-// TODO: Return false on error
-bool coalesce_xyz_lines(const std::vector<string> &x_lines, const std::vector<string> &y_lines,
-        const std::vector<string> &z_lines, FloatArray2D &out_array) {
-    // The lengths of the input vectors should be the same
-    if(x_lines.size() != y_lines.size() || y_lines.size() != z_lines.size()) {
-        cerr << "coalesce_xyz_lines: Input vector length mismatch. How's that for cryptic?" << endl;
-        cerr << "coalesce_xyz_lines: Remember, I don't tolerate empty lines in input files." << endl;
-        exit(EXIT_FAILURE);
-    }
-    // Ensure we have enough space
-    int num_tuples = x_lines.size();
-    out_array.reset(num_tuples, 3);
-
-    // Do the actual parsing
-    for(int i = 0; i < num_tuples; i++) {
-        out_array.set(i, 0, std::stof(x_lines[i]));
-        out_array.set(i, 1, std::stof(y_lines[i]));
-        out_array.set(i, 2, std::stof(z_lines[i]));
-    }
-    return true;
-}
 
 // Separate raw lipid coordinates into head and tail, and clean it up
 // TODO: Return false on error
@@ -118,9 +84,9 @@ void wrap_into_box_xy_plane(FloatArray2D &heads, FloatArray2D &tails, float a, f
     }
 }
 
-void wrap_z_and_calc_director(FloatArray2D &heads, FloatArray2D &tails, float c,
-        FloatArray2D &out_director, std::vector<bool> &out_lipid_good,
-        int &out_num_upper_leaflet, int &out_num_lower_leaflet, float &out_head_avg_z) {
+void wrap_z_and_calc_director(FloatArray2D &heads, FloatArray2D &tails, float c, FloatArray2D &out_director,
+                              std::vector<bool> &out_lipid_good, int &out_num_upper_leaflet, int &out_num_lower_leaflet,
+                              float &out_head_avg_z) {
     const float CUTOFF_ANGLE = 0.0f;
     const float z_wrap_threshold = 0.6f * c;
 
@@ -186,8 +152,8 @@ void wrap_z_and_calc_director(FloatArray2D &heads, FloatArray2D &tails, float c,
 
 // Set up the Q matrix (wavevector), which will end up going into the FFT.
 // The "x" and "y" components are stored separately, to avoid making a "Float2Array2D" or some such
-void create_q_matrix(int grid_size, FloatArray2D &qx_matrix, FloatArray2D &qy_matrix,
-        FloatArray2D &cos_q_matrix, FloatArray2D &sin_q_matrix) {
+void create_q_matrix(int grid_size, FloatArray2D &qx_matrix, FloatArray2D &qy_matrix, FloatArray2D &cos_q_matrix,
+                     FloatArray2D &sin_q_matrix) {
     qx_matrix.reset(grid_size, grid_size);
     qy_matrix.reset(grid_size, grid_size);
     sin_q_matrix.reset(grid_size, grid_size);
@@ -216,7 +182,7 @@ void create_q_matrix(int grid_size, FloatArray2D &qx_matrix, FloatArray2D &qy_ma
 }
 
 // Caller must delete the return value
-float *average_q_in_fft(FloatArray2D &fft_array, int nyquist = 0) {
+float *average_q_in_fft(FloatArray2D &fft_array, int nyquist) {
     assert(fft_array.num_rows() == fft_array.num_cols());
     int grid_size = fft_array.num_rows();
     size_t out_length = (grid_size+4)*(grid_size+2)/8;
@@ -294,7 +260,7 @@ int interpolate_one_cell(FloatArray2D &data, FloatArray2D &good_count, int i, in
     float data_left = data.get(i, j_left);
     float data_right = data.get(i, j_right);
     data.set(i, j, (up_count*data_up + down_count*data_down + left_count*data_left
-                        + right_count*data_right) / good_adjacent);
+                    + right_count*data_right) / good_adjacent);
     if(up_count == 0 || down_count == 0 || left_count == 0 || right_count == 0) {
         return 1;
     }
@@ -303,13 +269,11 @@ int interpolate_one_cell(FloatArray2D &data, FloatArray2D &good_count, int i, in
 
 // Map lipids onto discretized grid which will eventually be FFTed
 // Returns total adjacent empty count
-int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &director,
-        std::vector<bool> &lipid_good, int grid_size,
-        float box_a, float box_b, float avg_head_z,
-        FloatArray2D &z_height_upper, FloatArray2D &z_height_lower,
-        FloatArray2D &lipid_good_upper, FloatArray2D &lipid_good_lower,
-        FloatArray2D &lipid_bad_upper, FloatArray2D &lipid_bad_lower,
-        std::vector<int> &xj_vec, std::vector<int> &yj_vec) {
+int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &director, std::vector<bool> &lipid_good,
+                  int grid_size, float box_a, float box_b, float avg_head_z, FloatArray2D &z_height_upper,
+                  FloatArray2D &z_height_lower, FloatArray2D &lipid_good_upper, FloatArray2D &lipid_good_lower,
+                  FloatArray2D &lipid_bad_upper, FloatArray2D &lipid_bad_lower, std::vector<int> &xj_vec,
+                  std::vector<int> &yj_vec) {
     z_height_upper.reset(grid_size, grid_size);
     z_height_lower.reset(grid_size, grid_size);
     // Keep count of how many good and bad lipids are represented at each grid point
@@ -397,12 +361,12 @@ int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &direct
 }
 
 // OK, OK, I know the number of parameters here is ridiculous
-void calculate_number_densities(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &director, std::vector<bool> &lipid_good,
-        int num_upper_leaflet, int num_lower_leaflet,
-        FloatArray2D &qx_matrix, FloatArray2D &qy_matrix, int grid_size, float a, float b, float avg_head_z,
-        FloatArray2D &h_real, FloatArray2D &h_imag,
-        FloatArray2D &psi_upper_real, FloatArray2D &psi_upper_imag, FloatArray2D &psi_lower_real,
-        FloatArray2D &psi_lower_imag) {
+void calculate_number_densities(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &director,
+                                std::vector<bool> &lipid_good, int num_upper_leaflet, int num_lower_leaflet,
+                                FloatArray2D &qx_matrix, FloatArray2D &qy_matrix, int grid_size, float a, float b,
+                                float avg_head_z, FloatArray2D &h_real, FloatArray2D &h_imag,
+                                FloatArray2D &psi_upper_real, FloatArray2D &psi_upper_imag,
+                                FloatArray2D &psi_lower_real, FloatArray2D &psi_lower_imag) {
     h_real.reset(grid_size, grid_size);
     h_imag.reset(grid_size, grid_size);
     psi_upper_real.reset(grid_size, grid_size);
@@ -454,7 +418,7 @@ void calculate_number_densities(FloatArray2D &heads, FloatArray2D &tails, FloatA
 
 
 // Do a DFT on a grid, allocating an output buffer if necessary
-fftwf_complex *do_dft2d_r2c(int grid_size, fftwf_plan plan, float *raw_data, fftwf_complex *fft_data = nullptr) {
+fftwf_complex *do_dft2d_r2c(int grid_size, fftwf_plan plan, float *raw_data, fftwf_complex *fft_data) {
     int num_grid_pairs = grid_size*(grid_size/2+1);
     if(fft_data == nullptr) {
         fft_data = new fftwf_complex[num_grid_pairs];
@@ -468,7 +432,7 @@ fftwf_complex *do_dft2d_r2c(int grid_size, fftwf_plan plan, float *raw_data, fft
 // Do an DFT on a FloatArray2D
 // This is pretty much syntactic sugar.
 // Caller must delete[] the returned fftwf_complex*.
-fftwf_complex *do_dft2d_r2c(fftwf_plan plan, FloatArray2D &data, fftwf_complex *fft_data = nullptr) {
+fftwf_complex *do_dft2d_r2c(fftwf_plan plan, FloatArray2D &data, fftwf_complex *fft_data) {
     assert(data.num_rows() == data.num_cols());
     int grid_size = data.num_rows();
     auto raw_data = new float[grid_size*grid_size];
@@ -485,8 +449,7 @@ fftwf_complex *do_dft2d_r2c(fftwf_plan plan, FloatArray2D &data, fftwf_complex *
 // Fills in the right half of the full array, using the property
 // h_{-q} = h*_{q}=h_{N-q}, whatever that means.
 // This modifies all the array arguments!
-void fill_full_array(FloatArray2D &real, FloatArray2D &imaginary, fftwf_complex *array2,
-    float box_xy_magnitude) {
+void fill_full_array(FloatArray2D &real, FloatArray2D &imaginary, fftwf_complex *array2, float box_xy_magnitude) {
 
     // We can avoid passing in the grid size because real/imaginary should already be the correct size
     // cerr << "grid_size: " << grid_size << endl
@@ -544,34 +507,8 @@ void fill_full_array(FloatArray2D &real, FloatArray2D &imaginary, fftwf_complex 
     }
 }
 
-
-int main(int argc, char *argv[]) {
-    const int num_lipids = 512; // known from VMD
-    const int grid_size = 12; // to be a user argument
-    const bool should_norm_z1 = false; // to be a user argument
-    const float T0IN = 17.97264862; // initial guess for average thickness?
-
-	cout << "Loading test set..." << endl;
-	std::vector<string> box_x_lines, box_y_lines, box_z_lines;
-	load_all_lines("from_barel/TestSet2/boxsizeX.out", box_x_lines);
-    load_all_lines("from_barel/TestSet2/boxsizeY.out", box_y_lines);
-    load_all_lines("from_barel/TestSet2/boxsizeZ.out", box_z_lines);
-	cout << "Lines in box files: " << box_x_lines.size() << " " << box_y_lines.size() << " " << box_z_lines.size()
-	    << endl;
-    FloatArray2D box_size;
-    coalesce_xyz_lines(box_x_lines, box_y_lines, box_z_lines, box_size);
-
-    // Load the lipids
-	std::vector<string> lipid_x_lines, lipid_y_lines, lipid_z_lines;
-    load_all_lines("from_barel/TestSet2/LipidX.out", lipid_x_lines);
-    load_all_lines("from_barel/TestSet2/LipidY.out", lipid_y_lines);
-    load_all_lines("from_barel/TestSet2/LipidZ.out", lipid_z_lines);
-    cout << "Lines in lipid files: " << lipid_x_lines.size() << " " << lipid_y_lines.size() << " " << lipid_z_lines.size()
-         << endl;
-    // This lipid variable contains both heads and tails!
-    FloatArray2D lipid;
-    coalesce_xyz_lines(lipid_x_lines, lipid_y_lines, lipid_z_lines, lipid);
-
+void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lipids, int grid_size,
+                        const bool should_norm_z1) {
     // Calculate average box size in X and Y dimensions - we'll need this below to wrap lipids
     float avg_a = 0.0, avg_b = 0.0;
     for(int frame_i = 0; frame_i < box_size.num_rows(); frame_i++) {
@@ -619,12 +556,11 @@ int main(int argc, char *argv[]) {
     auto norm_lower_y_raw = new float[grid_size*grid_size];
     auto norm_lower_z_raw = new float[grid_size*grid_size];
 
-
     const int fft_size[2] = {grid_size, grid_size};
     auto spectrum_plan = fftwf_plan_many_dft_r2c(2, fft_size, 1, z_height_raw, nullptr, 1, 0,
-            z_height_fft, nullptr, 1, 0, FFTW_MEASURE);
+                                                 z_height_fft, nullptr, 1, 0, FFTW_MEASURE);
     auto inv_plan = fftwf_plan_many_dft_c2r(2, fft_size, 1, z_height_upper_wave_x_fft, NULL, 1, 0,
-                                               z_height_upper_wave_x_fft_raw, NULL, 1, 0, FFTW_MEASURE);
+                                            z_height_upper_wave_x_fft_raw, NULL, 1, 0, FFTW_MEASURE);
 
     // Go through individual frames
     // Lipid number density, or phi0 is, I guess, number of lipids per XY area divided by 2
@@ -652,20 +588,20 @@ int main(int argc, char *argv[]) {
         float avg_head_z;
         float box_z = box_size.get(frame_i, 2);
         wrap_z_and_calc_director(heads, tails, box_z, director, lipid_good, num_upper_leaflet,
-                num_lower_leaflet, avg_head_z);
+                                 num_lower_leaflet, avg_head_z);
 
         cout << "Upper and lower leaflet lipid counts: " << num_upper_leaflet << " " << num_lower_leaflet << endl;
 
         lipid_number_density += 0.5 * (num_upper_leaflet + num_lower_leaflet) / box_size.get(frame_i, 0)
-                / box_size.get(frame_i, 1);
+                                / box_size.get(frame_i, 1);
 
         // "CALCULATE NUMBER DENSITIES/////"
         // Not sure what these are yet
         FloatArray2D h_real, h_imag, psi_upper_real, psi_upper_imag, psi_lower_real, psi_lower_imag;
         // OMG this function does a lot of stuff
         calculate_number_densities(heads, tails, director, lipid_good, num_upper_leaflet, num_lower_leaflet,
-                qx_matrix, qy_matrix, grid_size, box_a, box_b, avg_head_z,
-                h_real, h_imag, psi_upper_real, psi_upper_imag, psi_lower_real, psi_lower_imag);
+                                   qx_matrix, qy_matrix, grid_size, box_a, box_b, avg_head_z,
+                                   h_real, h_imag, psi_upper_real, psi_upper_imag, psi_lower_real, psi_lower_imag);
 
         // Quantize into coarse-grained grid (c)
         FloatArray2D z_height_upper, z_height_lower;
@@ -675,8 +611,8 @@ int main(int argc, char *argv[]) {
         // Index of grid points by lipid index
         std::vector<int> xj_vec, yj_vec;
         int num_empty_total = map_onto_grid(heads, tails, director, lipid_good, grid_size, box_a, box_b, avg_head_z,
-                z_height_upper, z_height_lower, lipid_good_upper, lipid_good_lower, lipid_bad_upper, lipid_bad_lower,
-                xj_vec, yj_vec);
+                                            z_height_upper, z_height_lower, lipid_good_upper, lipid_good_lower, lipid_bad_upper, lipid_bad_lower,
+                                            xj_vec, yj_vec);
         cout << "At least one empty adjacent cell encountered: " << num_empty_total << endl;
 
         // Calculate height and thickness (d)
@@ -920,7 +856,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Renormalize director grid field ("Added by Itay")
-        // 
+        //
         for(int i = 0; i < grid_size; i++) {
             for(int j = 0; j < grid_size; j++) {
                 // By default normalize only with the Z component
@@ -929,11 +865,11 @@ int main(int argc, char *argv[]) {
                 // ...unless we want to use the overall magnitude
                 if(!should_norm_z1) { // normZ1
                     norm_factor_upper = sqrt(director_upper_x.get(i, j)*director_upper_x.get(i, j)
-                            + director_upper_y.get(i, j)*director_upper_y.get(i, j)
-                            + director_upper_z.get(i, j)*director_upper_z.get(i, j));
+                                             + director_upper_y.get(i, j)*director_upper_y.get(i, j)
+                                             + director_upper_z.get(i, j)*director_upper_z.get(i, j));
                     norm_factor_lower = sqrt(director_lower_x.get(i, j)*director_lower_x.get(i, j)
-                            + director_lower_y.get(i, j)*director_lower_y.get(i, j)
-                            + director_lower_z.get(i, j)*director_lower_z.get(i, j));
+                                             + director_lower_y.get(i, j)*director_lower_y.get(i, j)
+                                             + director_lower_z.get(i, j)*director_lower_z.get(i, j));
                 }
                 director_upper_x.divide(i, j, norm_factor_upper);
                 director_upper_y.divide(i, j, norm_factor_upper);
@@ -976,7 +912,7 @@ int main(int argc, char *argv[]) {
 
         // "ACCUMULATE SPECTRA//////" (Line 1385)
 
-        // 
+        //
         // float **Nnormh = init_matrix<float>(ngrid*ngrid,2); // top normal vector
         // float **normh = init_matrix<float>(ngrid*ngrid,2); // normal calculate from h
 

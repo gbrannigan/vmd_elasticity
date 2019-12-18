@@ -8,5 +8,5 @@
 # script is sourced, the variable $dir must contain the
 # full path name of this file's directory.
 
-package ifneeded bending_modulus 1.0 [list load [file join $dir old_vmd_bending_modulus.so ]]
+package ifneeded bending_modulus 1.0 [list load [file join $dir libvmd_bending_modulus.so ]]
 

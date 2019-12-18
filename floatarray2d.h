@@ -1,3 +1,4 @@
+#pragma once
 // Lightweight ghetto 2D array library. Sorry, all the ones with suitable licenses I could find were
 // much heavier weight than we need for this.
 //
@@ -11,6 +12,7 @@
 // Tom Joseph <thomas.joseph@uphs.upenn.edu>
 #include <iostream>
 #include <csignal>
+#include <cstring>
 
 class FloatArray2D {
     float *data_ = nullptr;
