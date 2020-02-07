@@ -105,7 +105,7 @@ Tcl_Obj *run_tcl_command_returning_obj(Tcl_Interp *interp, const char *text, int
     return Tcl_GetObjResult(interp);
 }
 
-// Runs a TCL command that returns a Tcl object. Returns that object, and the status code in &status
+// Runs a Tcl command that returns a Tcl object. Returns that object, and the status code in &status
 int run_tcl_command_returning_int(Tcl_Interp *interp, const char *text, int &status) {
     Tcl_Obj *obj = run_tcl_command_returning_obj(interp, text, status);
     if(status != TCL_OK) {
@@ -114,15 +114,25 @@ int run_tcl_command_returning_int(Tcl_Interp *interp, const char *text, int &sta
     int data;
     status = Tcl_GetIntFromObj(interp, obj, &data);
     if (status != TCL_OK) {
-        tcl_printf(interp, "hello %d. (TCL_OK = %d, TCL_ERROR = %d)", status, TCL_OK, TCL_ERROR);
-        // Tcl_SetResult(interp, (char *) "bending_modulus: error parsing number of frames", TCL_STATIC);
         return -1;
     }
     return data;
 }
 
 
-// The actual bending_modulus command
+// The actual bending_modulus command as invoked from VMD
+//
+// End goal, I think, is to output the following quantities for each grid point?, whatever these are:
+// q2_uniq_ny - number of unique values of the magnitude of q, excluding values at the Nyquist frequency
+// umparq2_uniq - director sum?
+// umperq2_uniq - director sum?
+// hq2_uniq;
+// tq2_uniq;
+// dpparq2_uniq - tilt sum?
+// dpperq2_uniq - tilt sum?
+// dmparq2_uniq - tilt diff?
+// dmperq2_uniq - tilt diff?
+
 static int obj_calc_bending_modulus(ClientData data, Tcl_Interp *interp, int argc, Tcl_Obj * const objv[]) {
     // TODO: Take an atomselect object containing only heads and tails
     // FIXME: For now, just uses the "atomselect top"
@@ -130,13 +140,25 @@ static int obj_calc_bending_modulus(ClientData data, Tcl_Interp *interp, int arg
     // Get number of frames in the system
     int status;
     int num_frames = run_tcl_command_returning_int(interp, "molinfo top get numframes", status);
+    if(status != TCL_OK) {
+        Tcl_SetResult(interp, (char *) "bending_modulus: Trouble getting the number of frames.", TCL_STATIC);
+        return TCL_ERROR;
+    }
     tcl_printf(interp, "There are %d frames.", num_frames);
 
     FloatArray2D box(num_frames, 3);
 
     Tcl_Obj *atomselect_heads = run_tcl_command_returning_obj(interp, "atomselect top \"lipid and name P\"", status);
+    if(status != TCL_OK) {
+        Tcl_SetResult(interp, (char *) "bending_modulus: Big trouble finding the lipid heads. Sorry this error message isn't more helpful.", TCL_STATIC);
+        return TCL_ERROR;
+    }
     Tcl_IncrRefCount(atomselect_heads);
     Tcl_Obj *atomselect_tails = run_tcl_command_returning_obj(interp, "atomselect top \"lipid and name C218\"", status);
+    if(status != TCL_OK) {
+        Tcl_SetResult(interp, (char *) "bending_modulus: Big trouble finding the lipid tails. Sorry this error message isn't more helpful.", TCL_STATIC);
+        return TCL_ERROR;
+    }
     Tcl_IncrRefCount(atomselect_tails);
 
     std::vector<int> heads_indices, tails_indices;
@@ -231,11 +253,12 @@ static int obj_calc_bending_modulus(ClientData data, Tcl_Interp *interp, int arg
             lipid.set(this_frame_offset + 2*i+1, 2, coords[idx*3+2]);
         }
 
+        Tcl_DecrRefCount(bytes);
     }
 
-    // TODO: Do we need to decrement the tcl reference count?
-    // Tcl_DecrRefCount(atomselect_heads);
-    // Tcl_DecrRefCount(atomselect_tails);
+    // I suppose this will result in the deletion of these Tcl objects
+    Tcl_DecrRefCount(atomselect_heads);
+    Tcl_DecrRefCount(atomselect_tails);
     tcl_printf(interp, "Done loading frames. See stdout for output (for now).");
 
     // Fasten your seatbelts

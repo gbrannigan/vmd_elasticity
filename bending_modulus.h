@@ -24,8 +24,8 @@ int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &direct
                   std::vector<bool> &lipid_good, int grid_size,
                   float box_a, float box_b, float avg_head_z,
                   FloatArray2D &z_height_upper, FloatArray2D &z_height_lower,
-                  FloatArray2D &lipid_good_upper, FloatArray2D &lipid_good_lower,
-                  FloatArray2D &lipid_bad_upper, FloatArray2D &lipid_bad_lower,
+                  FloatArray2D &good_count_upper, FloatArray2D &good_count_lower,
+                  FloatArray2D &bad_count_upper, FloatArray2D &bad_count_lower,
                   std::vector<int> &xj_vec, std::vector<int> &yj_vec);
 bool separate_lipid_heads_tails(const FloatArray2D &lipid, FloatArray2D &out_heads, FloatArray2D &out_tails);
 void wrap_into_box_xy_plane(FloatArray2D &heads, FloatArray2D &tails, float a, float b, float avg_a, float avg_b);

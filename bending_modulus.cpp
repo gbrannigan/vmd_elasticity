@@ -5,7 +5,6 @@
 // References to lines in comments below refer to old_vmd_bending_modulus.cpp (which is a modified
 // version of the original source code)
 #include <iostream>
-#include <fstream>
 #include <vector>
 #include <string>
 #include <cstring>
@@ -18,7 +17,6 @@
 using namespace std;
 
 constexpr float PHI0IN = 0.01588405482;
-
 
 // Separate raw lipid coordinates into head and tail, and clean it up
 // TODO: Return false on error
@@ -271,17 +269,17 @@ int interpolate_one_cell(FloatArray2D &data, FloatArray2D &good_count, int i, in
 // Returns total adjacent empty count
 int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &director, std::vector<bool> &lipid_good,
                   int grid_size, float box_a, float box_b, float avg_head_z, FloatArray2D &z_height_upper,
-                  FloatArray2D &z_height_lower, FloatArray2D &lipid_good_upper, FloatArray2D &lipid_good_lower,
-                  FloatArray2D &lipid_bad_upper, FloatArray2D &lipid_bad_lower, std::vector<int> &xj_vec,
+                  FloatArray2D &z_height_lower, FloatArray2D &good_count_upper, FloatArray2D &good_count_lower,
+                  FloatArray2D &bad_count_upper, FloatArray2D &bad_count_lower, std::vector<int> &xj_vec,
                   std::vector<int> &yj_vec) {
     z_height_upper.reset(grid_size, grid_size);
     z_height_lower.reset(grid_size, grid_size);
     // Keep count of how many good and bad lipids are represented at each grid point
     // It's nice they are floats because we will divide by them later.
-    lipid_good_upper.reset(grid_size, grid_size);
-    lipid_good_lower.reset(grid_size, grid_size);
-    lipid_bad_upper.reset(grid_size, grid_size);
-    lipid_bad_lower.reset(grid_size, grid_size);
+    good_count_upper.reset(grid_size, grid_size);
+    good_count_lower.reset(grid_size, grid_size);
+    bad_count_upper.reset(grid_size, grid_size);
+    bad_count_lower.reset(grid_size, grid_size);
     for(int lipid_i = 0; lipid_i < heads.num_rows(); lipid_i++) {
         float hx = heads.get(lipid_i, 0), hy = heads.get(lipid_i, 1);
         // Discretize on the XY grid
@@ -321,19 +319,19 @@ int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &direct
                 z_height_upper.add(this_xj, this_yj, hz - avg_head_z);
                 // TODO: z1sq_av_frame business
                 // Increment upper leaflet grid count for this cell
-                lipid_good_upper.add(this_xj, this_yj, 1);
+                good_count_upper.add(this_xj, this_yj, 1);
             } else {
                 // Remember how many bad lipids there are at this grid point
-                lipid_bad_upper.add(this_xj, this_yj, 1);
+                bad_count_upper.add(this_xj, this_yj, 1);
             }
         }
         // Lower leaflet
         if(dz > 0) {
             if(lipid_good[lipid_i]) {
                 z_height_lower.add(this_xj, this_yj, hz - avg_head_z);
-                lipid_good_lower.add(this_xj, this_yj, 1);
+                good_count_lower.add(this_xj, this_yj, 1);
             } else {
-                lipid_bad_lower.add(this_xj, this_yj, 1);
+                bad_count_lower.add(this_xj, this_yj, 1);
             }
         }
 
@@ -342,18 +340,18 @@ int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &direct
         yj_vec.push_back(this_yj);
     }
     // Normalize Z-height map by number of lipids
-    z_height_upper.divide(lipid_good_upper);
-    z_height_lower.divide(lipid_good_lower);
+    z_height_upper.divide(good_count_upper);
+    z_height_lower.divide(good_count_lower);
 
     // Fill empty grid cell by interpolation from adjacent cells, for both leaflets (e)
     int num_empty_total = 0;
     for(int i = 0; i < grid_size; i++) {
         for(int j = 0; j < grid_size; j++) {
-            if(lipid_good_upper.get(i, j) == 0) {
-                num_empty_total += interpolate_one_cell(z_height_upper, lipid_good_upper, i, j);
+            if(good_count_upper.get(i, j) == 0) {
+                num_empty_total += interpolate_one_cell(z_height_upper, good_count_upper, i, j);
             }
-            if(lipid_good_lower.get(i, j) == 0) {
-                num_empty_total += interpolate_one_cell(z_height_lower, lipid_good_lower, i, j);
+            if(good_count_lower.get(i, j) == 0) {
+                num_empty_total += interpolate_one_cell(z_height_lower, good_count_lower, i, j);
             }
         }
     }
@@ -607,12 +605,12 @@ void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lip
         FloatArray2D z_height_upper, z_height_lower;
         // Keep count of how many good and bad lipids are represented at each grid point
         // It's nice they are floats because we will divide by them later.
-        FloatArray2D lipid_good_upper, lipid_good_lower, lipid_bad_upper, lipid_bad_lower;
+        FloatArray2D good_count_upper, good_count_lower, bad_count_upper, bad_count_lower;
         // Index of grid points by lipid index
         std::vector<int> xj_vec, yj_vec;
         int num_empty_total = map_onto_grid(heads, tails, director, lipid_good, grid_size, box_a, box_b, avg_head_z,
-                                            z_height_upper, z_height_lower, lipid_good_upper, lipid_good_lower, lipid_bad_upper, lipid_bad_lower,
-                                            xj_vec, yj_vec);
+                                            z_height_upper, z_height_lower, good_count_upper, good_count_lower,
+                                            bad_count_upper, bad_count_lower, xj_vec, yj_vec);
         cout << "At least one empty adjacent cell encountered: " << num_empty_total << endl;
 
         // Calculate height and thickness (d)
@@ -651,7 +649,7 @@ void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lip
                 }
 
                 float box_xy_magnitude = sqrtf(box_a*box_b);
-                float norm = box_xy_magnitude / (grid_size*grid_size);
+                float norm = box_xy_magnitude / float(grid_size*grid_size);
                 // Note the double subscript on the fftwf_complex values, since these are
                 // really just float[2], for real and complex components
                 z_height_upper_wave_x_fft[k][0] = -norm*qi*z_height_upper_fft[k][1]*2*M_PI*box_a; // dz1xqS
@@ -716,14 +714,14 @@ void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lip
             z_height_lower_wave_y_fft_raw[k] /= box_b;
 
             // Normals
-            z_height_grad_x_fft_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_a;
-            z_height_grad_y_fft_raw[k] *= 1.0 / ((float) (grid_size * grid_size)) / box_b;
+            z_height_grad_x_fft_raw[k] *= 1.0f / ((float) (grid_size * grid_size)) / box_a;
+            z_height_grad_y_fft_raw[k] *= 1.0f / ((float) (grid_size * grid_size)) / box_b;
 
             float root_ginv_upper = 1.0, root_ginv_lower = 1.0;
             if (!should_norm_z1) {
-                root_ginv_upper = 1.0 / sqrt(1.0 + z_height_upper_wave_x_fft_raw[k] * z_height_upper_wave_x_fft_raw[k]
+                root_ginv_upper = 1.0f / sqrt(1.0f + z_height_upper_wave_x_fft_raw[k] * z_height_upper_wave_x_fft_raw[k]
                                              + z_height_upper_wave_y_fft_raw[k] * z_height_upper_wave_y_fft_raw[k]);
-                root_ginv_lower = 1.0 / sqrt(1.0 + z_height_lower_wave_x_fft_raw[k] * z_height_lower_wave_x_fft_raw[k]
+                root_ginv_lower = 1.0f / sqrt(1.0f + z_height_lower_wave_x_fft_raw[k] * z_height_lower_wave_x_fft_raw[k]
                                              + z_height_lower_wave_y_fft_raw[k] * z_height_lower_wave_y_fft_raw[k]);
             }
 
@@ -836,7 +834,7 @@ void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lip
         // Fill empty grid cells by interpolation from adjacent cells, for both leaflets (e)
         for(int i = 0; i < grid_size; i++) {
             for(int j = 0; j < grid_size; j++) {
-                if(lipid_good_upper.get(i, j) == 0) {
+                if(good_count_upper.get(i, j) == 0) {
                     interpolate_one_cell(tilt_upper_x, lipids_per_cell_upper, i, j);
                     interpolate_one_cell(tilt_upper_y, lipids_per_cell_upper, i, j);
                     interpolate_one_cell(tilt_upper_z, lipids_per_cell_upper, i, j);
@@ -844,7 +842,7 @@ void do_bending_modulus(FloatArray2D &lipid, FloatArray2D &box_size, int num_lip
                     interpolate_one_cell(director_upper_y, lipids_per_cell_upper, i, j);
                     interpolate_one_cell(director_upper_z, lipids_per_cell_upper, i, j);
                 }
-                if(lipid_good_lower.get(i, j) == 0) {
+                if(good_count_lower.get(i, j) == 0) {
                     interpolate_one_cell(tilt_lower_x, lipids_per_cell_lower, i, j);
                     interpolate_one_cell(tilt_lower_y, lipids_per_cell_lower, i, j);
                     interpolate_one_cell(tilt_lower_z, lipids_per_cell_lower, i, j);
