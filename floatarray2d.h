@@ -215,3 +215,6 @@ public:
         return num_cols_;
     }
 };
+
+// Stream insertion operator overload
+std::ostream& operator<<(std::ostream &os, const FloatArray2D &arr);
