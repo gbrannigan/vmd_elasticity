@@ -29,7 +29,7 @@ int map_onto_grid(FloatArray2D &heads, FloatArray2D &tails, FloatArray2D &direct
                   std::vector<int> &xj_vec, std::vector<int> &yj_vec);
 bool separate_lipid_heads_tails(const FloatArray2D &lipid, FloatArray2D &out_heads, FloatArray2D &out_tails);
 void wrap_into_box_xy_plane(FloatArray2D &heads, FloatArray2D &tails, float a, float b, float avg_a, float avg_b);
-void wrap_z_and_calc_director(FloatArray2D &heads, FloatArray2D &tails, float c,
+void wrap_z_and_calc_director(FloatArray2D &heads, FloatArray2D &tails, float box_z,
                               FloatArray2D &out_director, std::vector<bool> &out_lipid_good,
                               int &out_num_upper_leaflet, int &out_num_lower_leaflet, float &out_head_avg_z);
 

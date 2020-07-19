@@ -97,6 +97,18 @@ public:
         data_[r*num_cols_ + c] = val;
     }
 
+    // Returns the sum of all elements.
+    // This is a double because perhaps a float won't have enough bits.
+    // Yes, the caller could easily do this by calling get() a lot but if we do it this way
+    // it's faster.
+    double sum() const {
+        auto total = 0.0;
+        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+            total += data_[i];
+        }
+        return total;
+    }
+
     // Adds in place to a single cell
     FloatArray2D& add(int r, int c, float val) {
         check_out_of_bounds(r, c);
@@ -176,6 +188,22 @@ public:
         for(int i = 0; i < (num_rows_ * num_cols_); i++) {
             if(denom.data_[i] != 0) {
                 data_[i] /= denom.data_[i];
+            }
+        }
+        return *this;
+    }
+
+    // Pairwise divide but assume answer is zero if denominator is zero
+    FloatArray2D& divide_nan_is_zero(const FloatArray2D &denom) {
+        if(denom.num_rows() != num_rows_ || denom.num_cols() != num_cols_) {
+            std::cerr << "FloatArray2D::divide_ignore_zero_denom: Operand denom dimensions are different from mine" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        for(int i = 0; i < (num_rows_ * num_cols_); i++) {
+            if(denom.data_[i] != 0) {
+                data_[i] /= denom.data_[i];
+            } else {
+                data_[i] = 0.0f;
             }
         }
         return *this;
